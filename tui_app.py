@@ -1,6 +1,7 @@
+from re import I
 from tkinter import Label
 from textual.app import App, ComposeResult
-from textual.widgets import Static, Header, Footer, Input, Pretty, Tree
+from textual.widgets import Static, Header, Footer, Input, Pretty, Tree, TextArea
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 import requests
@@ -35,7 +36,18 @@ class TreePanel(Tree):
                 node.data = link  # Store the link dict for later access
         self.root.expand_all()
 
-class OutputPanel(Tree):
+class OutputPanelArea(TextArea):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.read_only = True
+        self.update_output({})
+
+    def update_output(self, data):
+        pretty_json = json.dumps(data, indent=2)
+        self.value = pretty_json
+        self.language = "json"
+
+class OutputPanelTree(Tree):
     def __init__(self, *args, **kwargs):
         super().__init__("Output", *args, **kwargs)
         self.update_output({})
@@ -78,7 +90,7 @@ class TuiApp(App):
     def compose(self) -> ComposeResult:
         self.breadcrumb = Breadcrumb(f"URI: {self.uri}")
         self.tree_panel = TreePanel([])
-        self.output_panel = OutputPanel()
+        self.output_panel = OutputPanelArea().code_editor(language="json", read_only=True)
         yield Header()
         yield self.breadcrumb
         with Horizontal():
@@ -103,11 +115,11 @@ class TuiApp(App):
             logging.debug("Update links panel.")
             self.tree_panel.update_links(self.links)
             logging.debug("Update output.")
-            self.output_panel.update_output(data)
+            self.output_panel.text = json.dumps(data, indent=2)
             logging.info(f"Fetched and updated panels for URI: {uri}")
         except Exception as e:
             logging.error(f"Error fetching URI {uri}: {e}")
-            self.output_panel.update_output({"error": str(e)})
+            self.output_panel.text = f'"error": "{str(e)}"'
 
     def action_cursor_up(self):
         self.tree_panel.action_cursor_up()
@@ -120,6 +132,7 @@ class TuiApp(App):
         if node and node.data and "href" in node.data:
             href = node.data["href"]
             self.uri = href
+            self.breadcrumb.update_uri(href)  # Update breadcrumb with selected href
             self.fetch_and_update(href)
 
 # For manual testing:
@@ -150,6 +163,4 @@ if __name__ == "__main__":
     )
     
     app = TuiApp(uri, auth)
-    app.run()
-    app.run()
     app.run()

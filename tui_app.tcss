@@ -3,7 +3,7 @@ TreePanel {
     width: 30;
 }
 
-OutputPanel {
+OutputPanelArea {
     border: solid gray;
     min-width: 40;
 }
