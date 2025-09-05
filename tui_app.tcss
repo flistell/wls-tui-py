@@ -1,6 +1,6 @@
 TreePanel {
     border: solid cyan;
-    width: 30;
+    width: 40;
 }
 
 OutputPanelArea {

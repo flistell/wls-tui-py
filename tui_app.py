@@ -1,9 +1,11 @@
 from re import I
 from tkinter import Label
+from urllib.parse import urlparse
 from textual.app import App, ComposeResult
 from textual.widgets import Static, Header, Footer, Input, Pretty, Tree, TextArea
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
+from textual import on
 import requests
 import json
 import logging
@@ -26,10 +28,19 @@ class TreePanel(Tree):
     def update_links(self, links):
         self.clear()
         parent = self.root.add('parent', expand=True)
-        parent.data = [x for x in links if x['rel'] == 'parent']
+        parent.allow_expand = False
         current = parent.add_leaf('self')
         current.data = [x for x in links if x['rel'] == 'self']
+        current.allow_expand = False
         for link in links:
+            if link['rel'] in ['parent']:
+                parent.data = link
+                href_parsed = urlparse(link['href'])
+                parent.label = href_parsed.path.split('/')[-1] 
+            if link['rel'] in ['self']:
+                current.data = link
+                href_parsed = urlparse(link['href'])
+                current.label = href_parsed.path.split('/')[-1]
             if link['rel'] not in ['parent', 'self', 'canonical']:
                 logging.debug(f"Adding link to tree: {link['rel']}")
                 node = current.add_leaf(link['rel'])
@@ -40,12 +51,6 @@ class OutputPanelArea(TextArea):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.read_only = True
-        self.update_output({})
-
-    def update_output(self, data):
-        pretty_json = json.dumps(data, indent=2)
-        self.value = pretty_json
-        self.language = "json"
 
 class OutputPanelTree(Tree):
     def __init__(self, *args, **kwargs):
@@ -74,8 +79,9 @@ class OutputPanelTree(Tree):
 class TuiApp(App):
     CSS_PATH = "tui_app.tcss"
 
-    BINDINGS = [("up", "cursor_up", "Up"), ("down", "cursor_down", "Down"),
-                ("j", "cursor_down", "Down"), ("k", "cursor_up", "Up"),
+    BINDINGS = [("up", "cursor_up", "Up"),
+                ("down", "cursor_down", "Down"),
+                ("left", "cursor_parent", "Parent"),
                 ("enter", "select_link", "Select")]
 
     uri = reactive("")
@@ -115,25 +121,48 @@ class TuiApp(App):
             logging.debug("Update links panel.")
             self.tree_panel.update_links(self.links)
             logging.debug("Update output.")
+            data.pop('links', None)  # Remove links from output display
             self.output_panel.text = json.dumps(data, indent=2)
             logging.info(f"Fetched and updated panels for URI: {uri}")
         except Exception as e:
             logging.error(f"Error fetching URI {uri}: {e}")
             self.output_panel.text = f'"error": "{str(e)}"'
 
-    def action_cursor_up(self):
+    def cursor_up(self):
         self.tree_panel.action_cursor_up()
 
-    def action_cursor_down(self):
+    def cursor_down(self):
         self.tree_panel.action_cursor_down()
 
-    def action_select_link(self):
+    def cursor_parent(self):
+        node = self.tree_panel.cursor_node
+        if node and node.parent:
+            self.tree_panel.move_cursor(node.parent)
+
+    def select_link(self):
+        logging.debug("Select link action triggered.")
         node = self.tree_panel.cursor_node
         if node and node.data and "href" in node.data:
             href = node.data["href"]
             self.uri = href
-            self.breadcrumb.update_uri(href)  # Update breadcrumb with selected href
             self.fetch_and_update(href)
+
+    @on(Tree.NodeSelected)
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        node = event.node
+        logging.debug(f"Tree node selected event: {node}")
+        if node and node.data and "href" in node.data:
+            href = node.data["href"]
+            self.uri = href
+            self.fetch_and_update(href)
+
+    @on(Input.Submitted)
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.uri = event.value
+        self.value = event.value
+        self.fetch_and_update(event.value)
+
+
 
 # For manual testing:
 if __name__ == "__main__":
