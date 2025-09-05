@@ -1,0 +1,4 @@
+dotenv==0.9.9
+requests==2.32.5
+rich==14.1.0
+textual==6.1.0

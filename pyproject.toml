@@ -1,0 +1,20 @@
+[project]
+name = "wls-tui-py"
+version = "0.1.0"
+description = "A TUI to browse WebLogic Management API"
+authors = [
+    {name = "F.List",email = "36734596+flistell@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9,<4.0.0"
+dependencies = [
+    "requests (>=2.32.5,<3.0.0)",
+    "dotenv (>=0.9.9,<0.10.0)",
+    "rich (>=14.1.0,<15.0.0)",
+    "textual (>=6.1.0,<7.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

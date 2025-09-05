@@ -11,12 +11,12 @@ from rich.pretty import pprint
 
 BASE_REST = 'management/weblogic/latest/'
 
-SESSION = None
+SESSION = requests.Session()
 
 pages = dict()
 
-def navigate(base_url, uri=None):
-    url = urljoin(base_url, BASE_REST, uri)
+def navigate(base_url, uri=""):
+    url = urljoin(urljoin(base_url, BASE_REST), uri)
     response = SESSION.get(url)
     response.raise_for_status()
     logging.debug("Connection successful")
@@ -51,7 +51,6 @@ def main():
     try:
         logging.debug(f"Connecting to {args.url}")
         global SESSION
-        SESSION = requests.Session()
         SESSION.auth = auth
         SESSION.verify = False
         SESSION.proxies = {}

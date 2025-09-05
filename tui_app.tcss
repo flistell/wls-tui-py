@@ -1,0 +1,13 @@
+TreePanel {
+    border: solid cyan;
+    width: 30;
+}
+
+OutputPanel {
+    border: solid gray;
+    min-width: 40;
+}
+
+Label {
+    padding: 1 2;
+}
