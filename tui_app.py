@@ -1,7 +1,8 @@
+from os import link
 from urllib.parse import urlparse
 from textual.app import App, ComposeResult
 from rich.text import Text
-from textual.widgets import  Header, Footer, Input, Pretty, Tree, TextArea
+from textual.widgets import  Header, Footer, Input, Pretty, Tree, TextArea, TabbedContent, TabPane
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual import on
@@ -10,7 +11,7 @@ import requests
 import json
 import logging
 
-class Breadcrumb(Input):
+class LocationBar(Input):
     def __init__(self, uri, *args, **kwargs):
         super().__init__(placeholder="URI")
         self.uri = uri
@@ -58,7 +59,10 @@ class TreePanel(Tree):
             for link in sorted_links:
                 if link['rel'] not in ['parent', 'self', 'canonical']:
                     logging.debug(f"Adding link under selected node: {link['rel']}")
-                    node = parent_node.add_leaf(link['rel'])
+                    if link['rel'] == 'action' and 'title' in link:
+                        node = parent_node.add_leaf(f"{link['rel']} ({link['title']})")
+                    else:
+                        node = parent_node.add_leaf(link['rel'])
                     node.data = link
                     parent_node.allow_expand = True
 
@@ -67,6 +71,9 @@ class OutputPanelArea(TextArea):
         super().__init__(*args, **kwargs)
         self.read_only = True
 
+    def update_output(self, data):
+        self.text = (json.dumps(data, indent=2))
+
 
 class OutputPanelTree(Tree):
     def __init__(self, *args, **kwargs):
@@ -74,7 +81,8 @@ class OutputPanelTree(Tree):
         self.update_output({})
 
     def update_output(self, data):
-        self._populate_tree(self.root, data)
+        self.clear()
+        self.add_json(data)
         self.root.expand_all()
 
     def _populate_tree(self, node, value):
@@ -102,11 +110,17 @@ class TuiApp(App):
         ("shift+left", "collapse_node", "Collapse"),
         ("l", "expand_node", "Expand"),
         ("h", "collapse_node", "Collapse"),
+        ("t", "show_tab('text')", "Text View"),
+        ("y", "show_tab('json')", "JSON View")
     ]
 
     uri = reactive("")
     links = reactive([])
     output = reactive({})
+    output_mode = 'text' # can be 'text' or 'json'
+    data = None
+
+    unclutter = True
 
     def __init__(self, start_uri, auth=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -115,56 +129,79 @@ class TuiApp(App):
         self.highlighter = ReprHighlighter()
 
     def compose(self) -> ComposeResult:
-        self.breadcrumb = Breadcrumb(f"URI: {self.uri}")
-        self.tree_panel = TreePanel([])
-        self.output_panel = OutputPanelArea().code_editor(language="json", read_only=True)
+        self.breadcrumb = LocationBar(f"URI: {self.uri}", id="locationbar")
+        self.tree_panel = TreePanel([], id='treepanel')
+        self.output_text = OutputPanelArea(id='output_text')
+        self.output_json = OutputPanelTree(id='output_json')
         yield Header()
         yield Footer()
         yield self.breadcrumb
         with Horizontal():
             yield self.tree_panel
-            yield self.output_panel
+            with TabbedContent(id="container", initial="text"):
+                with TabPane("Text", id="text"):
+                    yield self.output_text
+                with TabPane("Json", id="json"):
+                    yield self.output_json
+
+    def setUnclutter(self, unclutter):
+        self.unclutter = unclutter
 
     def on_mount(self):
         self.fetch_and_update(self.uri)
 
-    def fetch_and_update(self, uri, parent_node=None):
+    def fetch_and_update(self, uri, current_node=None):
         try:
+            # Fetch JSON data
             logging.info(f"Fetching and update URI: {uri}")
             resp = requests.get(uri, auth=self.auth, verify=False)
             resp.raise_for_status()
             data = resp.json()
             logging.debug(f"Fetched data: {data}")
-            self.output = data
-            self.links = data.get("links", [])
+
+            # Update UI Components
             logging.debug("Update breadcrumb.")
             self.breadcrumb.update_uri(uri)
             logging.debug("Update links panel.")
-            if parent_node is None:
-                self.tree_panel.add_links_node(self.links)
+            if current_node is None:
+                self.tree_panel.add_links_node(data.get('links', []))
             else:
-                if 'items' in data and 'items' not in [child.label for child in parent_node.children]:
-                    logging.debug("Adding item links to tree panel.")
-                    node_items = parent_node.add(f'[i]items[/i]').expand()
-                    i = 0
-                    for item in data['items']:
-                        item_name = item.get('name', f'{i}')
-                        item_links = item.get('links', [])
-                        node_item = node_items.add(f"[i]{item_name}[/i]").expand()
-                        node_item.data = item_name
-                        self.tree_panel.add_links_node(item_links, node_item)   
-                        i += 1
-                    parent_node.expand()
-                    node_items.expand()
-                else:
-                    self.tree_panel.add_links_node(self.links, parent_node)
+                #
+                #  + node
+                #     + 'items'
+                #
+                if 'items' in data:
+                    logging.debug("Adding sub-item links to tree panel.")
+                    for data_i in data['items']:
+                        logging.debug(f"Adding 'item' to tree: {data_i}")
+                        if 'links' in data_i:
+                            for link in data_i.get('links'):
+                                if link['rel'] == 'canonical':
+                                    links_item = {
+                                        'rel': data_i.get('name','item'),
+                                        'href': link['href']
+                                    }
+                                    data['links'].append(links_item)
+                    current_node.allow_expand = True
+                    current_node.expand()
+                if 'links' in data:
+                    self.tree_panel.add_links_node(data['links'], current_node)
             logging.debug("Update output.")
-            data.pop('links', None)  # Remove links from output display
-            self.output_panel.text = (json.dumps(data, indent=2))
+            if self.unclutter:
+                data.pop('links', None)  # Remove links from output display
+            self.data = data
+            self.output_text.update_output(data)
+            self.output_json.update_output(data)
             logging.info(f"Fetched and updated panels for URI: {uri}")
         except Exception as e:
             logging.error(f"Error fetching URI {uri}: {e}")
-            self.output_panel.text = f'"error": "{str(e)}"'
+            data = f'"error": "{str(e)}"'
+            self.data = data
+            self.output_text.update_output(data)
+            self.output_json.update_output(data)
+
+    def action_show_tab(self, tab: str) -> None:
+        self.query_one(TabbedContent).active = tab
 
     def action_cursor_up(self):
         self.tree_panel.action_cursor_up()
@@ -189,22 +226,13 @@ class TuiApp(App):
         if node:
             node.collapse()
 
-    def select_link(self):
-        logging.debug("Select link action triggered.")
-        node = self.tree_panel.cursor_node
-        if node and node.data and "href" in node.data:
-            href = node.data["href"]
-            self.uri = href
-            self.fetch_and_update(href, parent_node=node)
-
     @on(Tree.NodeSelected)
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         node = event.node
-        logging.debug(f"Tree node selected event: {node}")
+        logging.debug(f"Tree node selected event: {node}, {node.data}")
         if node and node.data and "href" in node.data:
-            href = node.data["href"]
-            self.uri = href
-            self.fetch_and_update(href, parent_node=node)
+            node_uri = node.data["href"]
+            self.fetch_and_update(node_uri, current_node=node)
 
     @on(Input.Submitted)
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -226,14 +254,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fetch JSON from a URL with authentication (accepts insecure HTTPS).")
     parser.add_argument("--username", help="Username for authentication")
     parser.add_argument("--password", help="Password for authentication")
+    parser.add_argument("--clutter", help="Show full JSON data than can clutter the output")
     parser.add_argument("--log", default="INFO", help="Logging level (default: INFO)")
     args, unknown = parser.parse_known_args()
 
     username = args.username or os.getenv("WLS_USERNAME")
     password = args.password or os.getenv("WLS_PASSWORD")
+    unclutter = False if args.clutter else True
 
     auth = (username, password) if username and password else None
-    uri = unknown[0] if unknown else "https://127.0.0.1:7002"    
+    uri = None
+    if not unknown or len(unknown) < 1:
+        uri = os.getenv("WLS_URI") 
+    if not uri:
+        uri = "http://127.0.0.1:7001"
     logging.basicConfig(
         filename="tui_app.log",
         level=args.log.upper(),
