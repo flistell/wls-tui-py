@@ -8,6 +8,11 @@ OutputPanelArea {
     min-width: 40;
 }
 
+OutputPanelTree {
+    border: solid gray;
+    min-width: 40;
+}
+
 Label {
     padding: 1 2;
 }

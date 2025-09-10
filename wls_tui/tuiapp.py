@@ -1,7 +1,7 @@
 from os import link
 from urllib.parse import urlparse
 from textual.app import App, ComposeResult
-from rich.text import Text
+from rich.text import Text, TextType
 from textual.widgets import  Header, Footer, Input, Pretty, Tree, TextArea, TabbedContent, TabPane
 from textual.containers import Horizontal
 from textual.reactive import reactive
@@ -21,6 +21,9 @@ class LocationBar(Input):
         self.value = uri
 
 class TreePanel(Tree):
+
+    nodes_index = {}  # { label1: TreeNode1, label2: TreeNode2, ... }
+
     def __init__(self, links, *args, **kwargs):
         super().__init__("Links", *args, **kwargs)
         self.links = links
@@ -41,7 +44,7 @@ class TreePanel(Tree):
                 if link['rel'] in ['parent']:
                     parent.data = link
                     href_parsed = urlparse(link['href'])
-                    parent.label = href_parsed.path.split('/')[-1] 
+                    parent.label = href_parsed.path.split('/')[-1]
                 if link['rel'] in ['self']:
                     current.data = link
                     href_parsed = urlparse(link['href'])
@@ -65,6 +68,25 @@ class TreePanel(Tree):
                         node = parent_node.add_leaf(link['rel'])
                     node.data = link
                     parent_node.allow_expand = True
+
+    def fuzzy_search(self, query):
+        import difflib
+        # Flatten all nodes to a list
+        # Get all rels
+        rels = [str(node.data.get('rel', '')) for node in self.nodes_index]
+        # Find close matches
+        matches = difflib.get_close_matches(query, rels, n=10, cutoff=0.5)
+        # Highlight matching nodes
+        for node in self.nodes_index:
+            if str(node.data.get('rel', '')) in matches:
+                node.set_label(f"> {node.label}")
+            else:
+                node.set_label(node.label.lstrip('> '))
+        # Optionally, move cursor to first match
+        for node in self.nodes_index:
+            if str(node.data.get('rel', '')) in matches:
+                self.move_cursor(node)
+                break
 
 class OutputPanelArea(TextArea):
     def __init__(self, *args, **kwargs):
@@ -101,7 +123,7 @@ class OutputPanelTree(Tree):
             node.add_leaf(str(value))
 
 class TuiApp(App):
-    CSS_PATH = "tui_app.tcss"
+    CSS_PATH = "app.tcss"
 
     BINDINGS = [
         ("j", "cursor_down", "Down"),
@@ -242,8 +264,7 @@ class TuiApp(App):
 
 
 
-# For manual testing:
-if __name__ == "__main__":
+def main():
     import sys
     from dotenv import load_dotenv
     import argparse
@@ -265,7 +286,7 @@ if __name__ == "__main__":
     auth = (username, password) if username and password else None
     uri = None
     if not unknown or len(unknown) < 1:
-        uri = os.getenv("WLS_URI") 
+        uri = os.getenv("WLS_URI")
     if not uri:
         uri = "http://127.0.0.1:7001"
     logging.basicConfig(
@@ -273,6 +294,9 @@ if __name__ == "__main__":
         level=args.log.upper(),
         format="%(asctime)s %(levelname)s: %(message)s"
     )
-    
+
     app = TuiApp(uri + '/management/weblogic/latest', auth)
     app.run()
+
+if __name__ == "__main__":
+    main()
