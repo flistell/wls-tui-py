@@ -144,14 +144,15 @@ class TuiApp(App):
 
     unclutter = True
 
-    def __init__(self, start_uri, auth=None, *args, **kwargs):
+    def __init__(self, start_uri, auth=None, insecure=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.insecure = insecure
         self.uri = start_uri
         self.auth = auth
         self.highlighter = ReprHighlighter()
 
     def compose(self) -> ComposeResult:
-        self.breadcrumb = LocationBar(f"URI: {self.uri}", id="locationbar")
+        self.breadcrumb = LocationBar(f"{self.uri}", id="locationbar")
         self.tree_panel = TreePanel([], id='treepanel')
         self.output_text = OutputPanelArea(id='output_text')
         self.output_json = OutputPanelTree(id='output_json')
@@ -176,7 +177,7 @@ class TuiApp(App):
         try:
             # Fetch JSON data
             logging.info(f"Fetching and update URI: {uri}")
-            resp = requests.get(uri, auth=self.auth, verify=False)
+            resp = requests.get(uri, auth=self.auth, verify=not self.insecure)
             resp.raise_for_status()
             data = resp.json()
             logging.debug(f"Fetched data: {data}")
@@ -269,33 +270,41 @@ def main():
     from dotenv import load_dotenv
     import argparse
     import os
+    import getpass
+
+    logging.basicConfig(
+        filename="tui_app.log",
+        format="%(asctime)s %(levelname)s: %(message)s"
+    )
 
     load_dotenv()  # Load .env file if present
 
-    parser = argparse.ArgumentParser(description="Fetch JSON from a URL with authentication (accepts insecure HTTPS).")
+    parser = argparse.ArgumentParser(description="WebLogic Management REST API TUI Application.")
+    parser.add_argument("uri", nargs="?", help="URI for WebLogic Management API (default: http://127.0.0.1:7001)")
     parser.add_argument("--username", help="Username for authentication")
     parser.add_argument("--password", help="Password for authentication")
     parser.add_argument("--clutter", help="Show full JSON data than can clutter the output")
     parser.add_argument("--log", default="INFO", help="Logging level (default: INFO)")
-    args, unknown = parser.parse_known_args()
+    parser.add_argument("--insecure", default=False, action="store_true", help="Allow insecure HTTPS connections")
+    args = parser.parse_args()
+    logging.getLogger().setLevel(args.log.upper())
 
     username = args.username or os.getenv("WLS_USERNAME")
     password = args.password or os.getenv("WLS_PASSWORD")
     unclutter = False if args.clutter else True
 
-    auth = (username, password) if username and password else None
-    uri = None
-    if not unknown or len(unknown) < 1:
-        uri = os.getenv("WLS_URI")
-    if not uri:
-        uri = "http://127.0.0.1:7001"
-    logging.basicConfig(
-        filename="tui_app.log",
-        level=args.log.upper(),
-        format="%(asctime)s %(levelname)s: %(message)s"
-    )
+    # If username is provided but password is missing, prompt for password securely
+    if username and not password:
+        password = getpass.getpass("Password: ")
 
-    app = TuiApp(uri + '/management/weblogic/latest', auth)
+    auth = (username, password) if username and password else None
+    # Use the URI from command line, otherwise from environment, otherwise default
+    uri = args.uri or os.getenv("WLS_URI") or "http://127.0.0.1:7001"
+
+
+    logging.debug(f"Command line URI: {uri}")
+
+    app = TuiApp(uri + '/management/weblogic/latest', auth, insecure=args.insecure)
     app.run()
 
 if __name__ == "__main__":
