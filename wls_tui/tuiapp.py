@@ -144,12 +144,17 @@ class TuiApp(App):
 
     unclutter = True
 
-    def __init__(self, start_uri, auth=None, insecure=False, *args, **kwargs):
+    def __init__(self, start_uri, auth=None, insecure=False, no_proxy=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.insecure = insecure
+        self.no_proxy = no_proxy
         self.uri = start_uri
         self.auth = auth
         self.highlighter = ReprHighlighter()
+        self.session = requests.Session()
+        if self.no_proxy:
+            self.session.trust_env = False  # Disable proxy from environment
+            self.session.proxies = {}  # Clear any existing proxies
 
     def compose(self) -> ComposeResult:
         self.breadcrumb = LocationBar(f"{self.uri}", id="locationbar")
@@ -177,7 +182,7 @@ class TuiApp(App):
         try:
             # Fetch JSON data
             logging.info(f"Fetching and update URI: {uri}")
-            resp = requests.get(uri, auth=self.auth, verify=not self.insecure)
+            resp = self.session.get(uri, auth=self.auth, verify=not self.insecure)
             resp.raise_for_status()
             data = resp.json()
             logging.debug(f"Fetched data: {data}")
@@ -286,6 +291,7 @@ def main():
     parser.add_argument("--clutter", help="Show full JSON data than can clutter the output")
     parser.add_argument("--log", default="INFO", help="Logging level (default: INFO)")
     parser.add_argument("--insecure", default=False, action="store_true", help="Allow insecure HTTPS connections")
+    parser.add_argument("--no-proxy", default=False, action="store_true", help="Ignore proxy settings defined in environment")
     args = parser.parse_args()
     logging.getLogger().setLevel(args.log.upper())
 
@@ -304,7 +310,7 @@ def main():
 
     logging.debug(f"Command line URI: {uri}")
 
-    app = TuiApp(uri + '/management/weblogic/latest', auth, insecure=args.insecure)
+    app = TuiApp(uri + '/management/weblogic/latest', auth, insecure=args.insecure, no_proxy=args.no_proxy)
     app.run()
 
 if __name__ == "__main__":
